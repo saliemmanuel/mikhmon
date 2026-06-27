@@ -56,7 +56,7 @@ server {
     # Configuration pour traiter les fichiers PHP
     location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php\${PHP_VERSION}-fpm.sock;
+        fastcgi_pass unix:/var/run/php/php${PHP_VERSION}-fpm.sock;
     }
 
     # Bloque l'accès aux fichiers cachés comme .htaccess
