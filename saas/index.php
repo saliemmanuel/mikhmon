@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="../css/font-awesome/css/font-awesome.min.css">
-    <link rel="stylesheet" href="../css/mikhmon-ui.min.css">
+    <link rel="stylesheet" href="../css/mikhmon-ui.blue.min.css">
     <link rel="icon" href="../img/favicon.png">
     <script src="../js/jquery.min.js"></script>
     <style>
