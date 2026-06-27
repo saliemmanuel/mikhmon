@@ -1,6 +1,6 @@
 #!/bin/bash
 # Script de fondation pour Serveur SaaS Mikhmon
-# Installe : Nginx, PHP, MariaDB, L2TP/IPsec (Serveur VPN)
+# Installe : Nginx, PHP, MariaDB, WireGuard (Serveur VPN moderne)
 
 if [ "$EUID" -ne 0 ]; then
   echo "Veuillez exécuter avec sudo bash setup-saas.sh"
@@ -13,122 +13,80 @@ apt update && apt upgrade -y
 echo "--> Installation des paquets web (LEMP)..."
 apt install nginx php-fpm php-mysql php-xml php-mbstring php-curl php-zip mariadb-server mariadb-client ufw curl -y
 
-echo "--> Installation du Serveur VPN (L2TP/IPsec)..."
-apt install strongswan xl2tpd iptables -y
+echo "--> Installation de WireGuard..."
+apt install wireguard wireguard-tools -y
 
-echo "--> Configuration d'IPsec (strongswan)..."
-# Clé pré-partagée (PSK) pour l'authentification IPsec
-VPN_IPSEC_PSK="MikhmonSaaS2024"
-VPN_SERVER_IP=$(curl -s ifconfig.me)
+echo "--> Génération des clés WireGuard du serveur..."
+wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key
+chmod 600 /etc/wireguard/server_private.key
 
-cat > /etc/ipsec.conf <<EOF
-config setup
-    charondebug="ike 1, knl 1, cfg 0"
-    uniqueids=no
+SERVER_PRIVATE_KEY=$(cat /etc/wireguard/server_private.key)
+SERVER_PUBLIC_KEY=$(cat /etc/wireguard/server_public.key)
+SERVER_IP=$(curl -s ifconfig.me)
 
-conn ikev1-l2tp
-    authby=secret
-    auto=add
-    keyingtries=3
-    rekey=no
-    ikelifetime=8h
-    keylife=1h
-    type=transport
-    left=%defaultroute
-    leftprotoport=17/1701
-    right=%any
-    rightprotoport=17/%any
-    fragmentation=yes
-    forceencaps=yes
-    dpddelay=30
-    dpdtimeout=120
-    dpdaction=clear
-EOF
+echo "--> Création de l'interface WireGuard (wg0)..."
+cat > /etc/wireguard/wg0.conf <<EOF
+[Interface]
+PrivateKey = $SERVER_PRIVATE_KEY
+Address = 10.8.0.1/24
+ListenPort = 51820
+SaveConfig = true
 
-cat > /etc/ipsec.secrets <<EOF
-: PSK "$VPN_IPSEC_PSK"
-EOF
-
-echo "--> Configuration de L2TP (xl2tpd)..."
-cat > /etc/xl2tpd/xl2tpd.conf <<EOF
-[global]
-port = 1701
-
-[lns default]
-ip range = 10.8.0.10-250
-local ip = 10.8.0.1
-require chap = yes
-refuse pap = yes
-require authentication = yes
-name = l2tpd
-pppoptfile = /etc/ppp/options.xl2tpd
-length bit = yes
-EOF
-
-cat > /etc/ppp/options.xl2tpd <<EOF
-ipcp-accept-local
-ipcp-accept-remote
-ms-dns 8.8.8.8
-ms-dns 8.8.4.4
-noccp
-auth
-mtu 1280
-mru 1280
-proxyarp
-lcp-echo-failure 4
-lcp-echo-interval 30
-connect-delay 5000
+# Règles NAT pour permettre le trafic VPN vers Internet
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 EOF
 
 echo "--> Activation du forwarding IP..."
 sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
 sysctl -p
 
+echo "--> Démarrage et activation de WireGuard..."
+systemctl enable wg-quick@wg0
+systemctl start wg-quick@wg0
+
 echo "--> Configuration du pare-feu..."
 ufw allow OpenSSH
 ufw allow 'Nginx Full'
-ufw allow 500/udp   # IPsec IKE
-ufw allow 4500/udp  # IPsec NAT-T
-ufw allow 1701/udp  # L2TP
+ufw allow 51820/udp  # WireGuard
 ufw --force enable
 
-echo "--> Démarrage des services VPN..."
-systemctl restart strongswan-starter
-systemctl restart xl2tpd
-systemctl enable strongswan-starter
-systemctl enable xl2tpd
-
-echo "--> Création du script de gestion des utilisateurs VPN..."
-cat > /usr/local/bin/vpn-manager.sh <<'EOF'
+echo "--> Création du script de gestion des clients VPN..."
+cat > /usr/local/bin/vpn-manager.sh <<'VPNEOF'
 #!/bin/bash
+# Usage: vpn-manager.sh add <username> <client_public_key> <client_ip>
+#        vpn-manager.sh remove <username>
 ACTION=$1
-USER=$2
-PASS=$3
+USERNAME=$2
+CLIENT_PUBKEY=$3
+CLIENT_IP=$4
 
 if [ "$ACTION" == "add" ]; then
-    # Retirer l'utilisateur s'il existe déjà
-    sed -i "/^$USER \*/d" /etc/ppp/chap-secrets
-    # Ajouter le nouvel utilisateur
-    echo "$USER * $PASS *" >> /etc/ppp/chap-secrets
-    systemctl restart xl2tpd
-    echo "User $USER added."
+    # Retirer le peer s'il existe déjà
+    wg set wg0 peer "$CLIENT_PUBKEY" remove 2>/dev/null
+    # Ajouter le nouveau peer avec son IP fixe
+    wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_IP/32"
+    # Sauvegarder la config pour qu'elle persiste après redémarrage
+    wg-quick save wg0
+    echo "Peer $USERNAME ($CLIENT_IP) added."
 elif [ "$ACTION" == "remove" ]; then
-    sed -i "/^$USER \*/d" /etc/ppp/chap-secrets
-    systemctl restart xl2tpd
-    echo "User $USER removed."
+    wg set wg0 peer "$CLIENT_PUBKEY" remove
+    wg-quick save wg0
+    echo "Peer $USERNAME removed."
 fi
-EOF
+VPNEOF
 chmod +x /usr/local/bin/vpn-manager.sh
 
-echo "--> Autoriser PHP à gérer les utilisateurs VPN..."
+echo "--> Autoriser PHP à gérer les clients VPN..."
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/vpn-manager.sh" > /etc/sudoers.d/mikhmon-vpn
 
 echo ""
 echo "================================================================"
 echo "✅ Serveur SaaS prêt !"
 echo ""
-echo "📌 NOTEZ CES INFORMATIONS (pour configurer vos MikroTik) :"
-echo "   IP Serveur : $VPN_SERVER_IP"
-echo "   Clé IPsec  : $VPN_IPSEC_PSK"
-echo "   Les utilisateurs/mots de passe VPN sont dans /etc/ppp/chap-secrets"
+echo "📌 CLÉ PUBLIQUE WireGuard DE VOTRE SERVEUR (à noter absolument) :"
+echo "$SERVER_PUBLIC_KEY"
+echo ""
+echo "   IP du Serveur : $SERVER_IP"
+echo "   Port WireGuard : 51820"
 echo "================================================================"
