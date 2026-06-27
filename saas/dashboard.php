@@ -18,7 +18,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['campay_app_id'])) {
 }
 
 $domain = $_SERVER['HTTP_HOST'];
-$mikrotik_script = "/interface pptp-client add connect-to=$domain disabled=no name=SaaS-VPN password={$client['vpn_password']} profile=default-encryption user={$client['username']}
+// Clé IPsec PSK - doit correspondre à celle dans setup-saas.sh
+$ipsec_psk = "MikhmonSaaS2024";
+
+$mikrotik_script = "/interface l2tp-client add connect-to=$domain disabled=no name=SaaS-VPN password={$client['vpn_password']} use-ipsec=yes ipsec-secret=$ipsec_psk profile=default user={$client['username']}
 /ip route add distance=1 dst-address=10.8.0.1/32 gateway=SaaS-VPN";
 
 // Récupérer les forfaits
