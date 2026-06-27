@@ -1,6 +1,12 @@
 -- Base de données pour Mikhmon SaaS
 
 CREATE DATABASE IF NOT EXISTS mikhmon_saas;
+
+-- Création d'un utilisateur dédié pour l'application PHP
+CREATE USER IF NOT EXISTS 'saas_user'@'localhost' IDENTIFIED BY 'Saas_Password_123!';
+GRANT ALL PRIVILEGES ON mikhmon_saas.* TO 'saas_user'@'localhost';
+FLUSH PRIVILEGES;
+
 USE mikhmon_saas;
 
 CREATE TABLE IF NOT EXISTS clients (

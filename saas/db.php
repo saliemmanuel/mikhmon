@@ -1,8 +1,8 @@
 <?php
 $host = '127.0.0.1';
 $db   = 'mikhmon_saas';
-$user = 'root';
-$pass = ''; // Sur le VPS de production, il faudra utiliser le mot de passe MariaDB
+$user = 'saas_user';
+$pass = 'Saas_Password_123!';
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
