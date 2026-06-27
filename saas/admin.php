@@ -11,12 +11,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     $password_hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
     $vpn_ip    = $_POST['vpn_ip'];
     $vpn_pass  = substr(md5(uniqid()), 0, 10);
+
+    // Génération automatique des clés WireGuard pour ce client
+    $wg_private = trim(shell_exec("wg genkey"));
+    $wg_public  = trim(shell_exec("echo " . escapeshellarg($wg_private) . " | wg pubkey"));
+
     try {
-        $stmt = $pdo->prepare("INSERT INTO clients (username, password, vpn_password, vpn_ip) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$username, $password_hash, $vpn_pass, $vpn_ip]);
-        $cmd = "sudo /usr/local/bin/vpn-manager.sh add " . escapeshellarg($username) . " " . escapeshellarg($vpn_pass) . " " . escapeshellarg($vpn_ip);
+        $stmt = $pdo->prepare("INSERT INTO clients (username, password, vpn_password, vpn_ip, wg_private_key, wg_public_key) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$username, $password_hash, $vpn_pass, $vpn_ip, $wg_private, $wg_public]);
+
+        // Ajouter ce client comme "peer" WireGuard sur le serveur
+        $cmd = "sudo /usr/local/bin/vpn-manager.sh add " . escapeshellarg($username) . " " . escapeshellarg($wg_public) . " " . escapeshellarg($vpn_ip);
         shell_exec($cmd);
-        $success = "Client \"$username\" créé ! IP VPN : <b>$vpn_ip</b>";
+
+        $success = "Client \"$username\" créé avec succès ! IP VPN : <b>$vpn_ip</b>";
     } catch (\PDOException $e) {
         $error = "Erreur : Ce nom d'utilisateur ou cette adresse IP est déjà utilisé.";
     }

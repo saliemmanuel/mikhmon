@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS clients (
     password VARCHAR(255) NOT NULL,
     vpn_password VARCHAR(50) NOT NULL,
     vpn_ip VARCHAR(20) NOT NULL UNIQUE,
+    wg_private_key VARCHAR(255),
+    wg_public_key VARCHAR(255),
     campay_app_id VARCHAR(255),
     campay_app_secret VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -18,11 +18,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['campay_app_id'])) {
 }
 
 $domain = $_SERVER['HTTP_HOST'];
-// Clé IPsec PSK - doit correspondre à celle dans setup-saas.sh
-$ipsec_psk = "MikhmonSaaS2024";
+// Clé publique du serveur WireGuard (générée lors du setup-saas.sh)
+$server_public_key = "RJpxC0yH9VCYPHrjDsxm0iWGEy12THrPzKyDiDIAXGk=";
+$server_ip = "13.51.55.40";
+$wg_port = "51820";
 
-$mikrotik_script = "/interface l2tp-client add connect-to=$domain disabled=no name=SaaS-VPN password={$client['vpn_password']} use-ipsec=yes ipsec-secret=$ipsec_psk profile=default user={$client['username']}
-/ip route add distance=1 dst-address=10.8.0.1/32 gateway=SaaS-VPN";
+// Clés WireGuard du client (générées automatiquement à la création du compte)
+$client_private_key = $client['wg_private_key'] ?? 'Non généré - Recréez le compte';
+$client_vpn_ip = $client['vpn_ip'];
+
+$mikrotik_script = "/interface wireguard add name=wg-saas private-key=\"$client_private_key\"
+/interface wireguard peers add interface=wg-saas public-key=\"$server_public_key\" endpoint-address=$server_ip endpoint-port=$wg_port allowed-address=10.8.0.0/24 persistent-keepalive=25
+/ip address add address=$client_vpn_ip/24 interface=wg-saas
+/ip route add distance=1 dst-address=10.8.0.1/32 gateway=wg-saas";
 
 // Récupérer les forfaits
 $stmt_plans = $pdo->prepare("SELECT * FROM plans WHERE client_id = ?");
